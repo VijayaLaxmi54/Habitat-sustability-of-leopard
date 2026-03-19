@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leopard Habitat Suitability Predictor</title>
+    <meta name="description" content="AI-powered tool to predict leopard habitat suitability based on environmental factors.">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="video-bg"></div>
+    <div class="overlay"></div>
+    
+    <main class="container">
+        <header class="header">
+            <h1>Leopard Habitat AI</h1>
+            <p>Predicting suitability across fragmented landscapes</p>
+        </header>
+
+        {% if not has_model %}
+        <div class="alert warning">
+            <strong>Warning:</strong> The model hasn't been trained yet. Please run <code>python train.py</code> in the terminal to generate the model files.
+        </div>
+        {% endif %}
+
+        <div class="dashboard">
+            <div class="glass-panel form-panel">
+                <h2>Environmental Factors</h2>
+                <form id="prediction-form">
+                    <div class="form-group">
+                        <label for="ndvi">NDVI (Vegetation Index 0 to 1)</label>
+                        <input type="number" id="ndvi" name="ndvi" step="0.01" min="0" max="1" value="0.65" required>
+                    </div>
+                    
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="elevation">Elevation (meters)</label>
+                            <input type="number" id="elevation" name="elevation" step="1" value="1200" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="slope">Slope (degrees)</label>
+                            <input type="number" id="slope" name="slope" step="0.1" value="15.5" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="land_use">Land Use Category</label>
+                        <div class="select-wrapper">
+                            <select id="land_use" name="land_use" required>
+                                <option value="1">Forest (Dense/Open Canopy)</option>
+                                <option value="2">Scrubland</option>
+                                <option value="3">Urban / Built-up</option>
+                                <option value="4">Agriculture</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="dist_water">Dist. to Water (m)</label>
+                            <input type="number" id="dist_water" name="dist_water" step="1" value="500" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="dist_roads">Dist. to Roads (m)</label>
+                            <input type="number" id="dist_roads" name="dist_roads" step="1" value="5000" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="dist_settlements">Dist. to Settlements (m)</label>
+                            <input type="number" id="dist_settlements" name="dist_settlements" step="1" value="6000" required>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-predict" {% if not has_model %}disabled{% endif %}>
+                        <span class="btn-text">Analyze Habitat</span>
+                        <div class="loader hidden"></div>
+                    </button>
+                    <div id="error-message" class="error-msg hidden"></div>
+                </form>
+            </div>
+
+            <div class="glass-panel result-panel">
+                <h2>Prediction Result</h2>
+                
+                <div id="result-container" class="result-placeholder">
+                    <div class="placeholder-icon">🐆</div>
+                    <p>Enter parameters and click predict to see the artificial intelligence analysis.</p>
+                </div>
+                
+                <div id="result-content" class="hidden">
+                    <div class="match-score">
+                        <div class="circular-chart" id="prob-chart">
+                            <svg viewBox="0 0 36 36" class="circular-chart-svg">
+                                <path class="circle-bg"
+                                  d="M18 2.0845
+                                    a 15.9155 15.9155 0 0 1 0 31.831
+                                    a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                                <path class="circle" id="prob-circle"
+                                  stroke-dasharray="0, 100"
+                                  d="M18 2.0845
+                                    a 15.9155 15.9155 0 0 1 0 31.831
+                                    a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                            </svg>
+                            <div class="percentage" id="prob-text">0%</div>
+                        </div>
+                        <h3 id="suitability-text">Unknown</h3>
+                    </div>
+                    
+                    <div class="details">
+                        <div class="detail-item">
+                            <span class="detail-label">Model Used</span>
+                            <span class="detail-value">Random Forest Ensemble</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Confidence</span>
+                            <span class="detail-value text-green">High</span>
+                        </div>
+                    </div>
+                    
+                    {% if has_model %}
+                    <div class="feature-importance-section mt-4">
+                        <h4>Feature Importance Model Map</h4>
+                        <img src="{{ url_for('static', filename='feature_importance.png') }}" class="feature-img" alt="Feature Importance" onerror="this.style.display='none'">
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.getElementById('prediction-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const btn = document.querySelector('.btn-predict');
+            const btnText = document.querySelector('.btn-text');
+            const loader = document.querySelector('.loader');
+            const resultPlaceholder = document.getElementById('result-container');
+            const resultContent = document.getElementById('result-content');
+            const errorMsg = document.getElementById('error-message');
+            
+            // UI Loading state
+            btn.disabled = true;
+            btnText.classList.add('hidden');
+            loader.classList.remove('hidden');
+            errorMsg.classList.add('hidden');
+            
+            try {
+                const formData = new FormData(this);
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Prediction failed');
+                }
+                
+                // Update UI with results
+                document.getElementById('prob-text').textContent = data.probability_pct;
+                document.getElementById('suitability-text').textContent = data.suitability;
+                
+                const probValue = Math.round(data.probability * 100);
+                const circle = document.getElementById('prob-circle');
+                
+                // Animate circle
+                setTimeout(() => {
+                    circle.setAttribute('stroke-dasharray', `${probValue}, 100`);
+                }, 100);
+                
+                // Color coding based on suitability
+                if(data.class === 1) {
+                    circle.style.stroke = '#10b981'; // green
+                    document.getElementById('suitability-text').style.color = '#10b981';
+                } else {
+                    circle.style.stroke = '#ef4444'; // red
+                    document.getElementById('suitability-text').style.color = '#ef4444';
+                }
+                
+                // Switch views
+                resultPlaceholder.classList.add('hidden');
+                resultContent.classList.remove('hidden');
+                
+                // Add a cool animation class
+                resultContent.classList.add('fade-in-up');
+                
+            } catch (error) {
+                errorMsg.textContent = error.message;
+                errorMsg.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btnText.classList.remove('hidden');
+                loader.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
